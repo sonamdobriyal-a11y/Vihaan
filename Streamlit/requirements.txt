@@ -5,3 +5,5 @@ transformers>=4.40
 huggingface-hub>=0.17
 music21>=8.2
 pytest>=8.0
+google-genai>=0.2
+python-dotenv>=1.0

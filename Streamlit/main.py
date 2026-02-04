@@ -2,6 +2,8 @@ import torch
 import streamlit as st
 
 from audio_pipeline import abc_to_audio
+from gemini_abc import GeminiABCError, generate_abc_from_prompt
+from gemini_music import GeminiMusicError, generate_gemini_music_audio
 from samplings import top_p_sampling, temperature_sampling
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 
@@ -74,7 +76,7 @@ def generate_music(
 st.sidebar.title("Navigation")
 page = st.sidebar.radio(
     "Go to",
-    ["Home", "Project", "Chatbot", "About", "Contact"]
+    ["Home", "Project", "Chatbot", "AI Tone", "About", "Contact"]
 )
 
 # Home page
@@ -210,7 +212,7 @@ elif page == "Chatbot":
         },
         {
             "title": "Rhodes-laced Bhairavi stroll",
-            "details": "Folk-inspired raga Bhairavi with lush Rhodes chords and vibraphone accents.",
+            "details": "Folk-inspired raga Bhairavi with lush Rhodes chords and vibraphone accents over a walking bass.",
         },
     ]
 
@@ -219,6 +221,115 @@ elif page == "Chatbot":
             st.markdown(f"**{example['title']}**")
             st.markdown(example["details"])
             st.markdown("")
+
+elif page == "AI Tone":
+    st.title("AI Generated Music Tone")
+    st.markdown(
+        """
+        Two options:
+        - Fast: generate ABC notation, then synthesize to WAV/MIDI locally (recommended).
+        - Direct audio: synthesize audio via Gemini (can be slower).
+        """,
+        unsafe_allow_html=True,
+    )
+
+    mode = st.radio(
+        "Generation mode",
+        ["Fast (ABC -> WAV)", "Direct audio (Gemini)"],
+        horizontal=True,
+    )
+
+    if mode == "Fast (ABC -> WAV)":
+        with st.form("gemini_abc_form"):
+            gemini_prompt = st.text_area(
+                "Describe the fusion mood or instrumentation:",
+                height=150,
+                placeholder="Cinematic raga mix with swelling Rhodes, tablas, and layered percussion..."
+            )
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                key = st.text_input("Key", value="D")
+            with col2:
+                meter = st.text_input("Meter", value="4/4")
+            with col3:
+                bars = st.slider("Bars", min_value=4, max_value=32, value=16, step=4)
+
+            submitted = st.form_submit_button("Generate")
+
+        if submitted:
+            with st.spinner("Generating ABC..."):
+                try:
+                    abc_text = generate_abc_from_prompt(
+                        prompt=gemini_prompt,
+                        key=key.strip() or "D",
+                        meter=meter.strip() or "4/4",
+                        bars=bars,
+                    )
+                    st.success("Generated ABC successfully.")
+                    st.code(abc_text, language="abc")
+
+                    midi_bytes, wav_bytes = abc_to_audio(abc_text)
+                    col_audio, col_downloads = st.columns([3, 1])
+                    with col_audio:
+                        st.caption("Listen to the synthesized output.")
+                        st.audio(wav_bytes, format="audio/wav")
+                    with col_downloads:
+                        st.download_button(
+                            "Download MIDI",
+                            data=midi_bytes,
+                            file_name="gemini-abc.mid",
+                            mime="audio/midi",
+                        )
+                        st.download_button(
+                            "Download WAV",
+                            data=wav_bytes,
+                            file_name="gemini-abc.wav",
+                            mime="audio/wav",
+                        )
+                except (GeminiABCError, Exception) as exc:
+                    st.error("ABC generation failed.")
+                    st.write(f"`{exc}`")
+                    st.caption(
+                        "If this persists, confirm `Streamlit/.env` contains `GEMINI_API_KEY=...`, "
+                        "restart the Streamlit server, and verify your key has API access/quota."
+                    )
+
+    else:
+        with st.form("gemini_music_form"):
+            gemini_prompt = st.text_area(
+                "Describe the fusion mood or instrumentation:",
+                height=150,
+                placeholder="Cinematic raga mix with swelling Rhodes, tablas, and layered percussion..."
+            )
+            bpm = st.slider("Tempo (BPM)", min_value=60, max_value=180, value=120, step=5)
+            density = st.slider("Density", min_value=0.3, max_value=1.0, value=0.8, step=0.05)
+            brightness = st.slider("Brightness", min_value=0.0, max_value=1.0, value=0.7, step=0.05)
+            guidance_strength = st.slider("Guidance strength", min_value=1.0, max_value=12.0, value=4.0, step=0.5)
+            duration_seconds = st.slider("Duration (seconds)", min_value=8, max_value=30, value=12, step=2)
+            submitted = st.form_submit_button("Generate")
+
+        if submitted:
+            with st.spinner("Generating audio (real-time)..."):
+                try:
+                    gemini_audio = generate_gemini_music_audio(
+                        prompt=gemini_prompt,
+                        bpm=bpm,
+                        density=density,
+                        brightness=brightness,
+                        guidance=guidance_strength,
+                        duration_seconds=duration_seconds,
+                    )
+                    st.success("Audio generated successfully.")
+                    st.audio(gemini_audio, format="audio/wav")
+                    st.download_button(
+                        "Download WAV",
+                        data=gemini_audio,
+                        file_name="gemini-tone.wav",
+                        mime="audio/wav",
+                    )
+                except GeminiMusicError as exc:
+                    st.error("Gemini generation failed.")
+                    st.write(f"`{exc}`")
 
 elif page == "About":
     st.title("About This Project")
